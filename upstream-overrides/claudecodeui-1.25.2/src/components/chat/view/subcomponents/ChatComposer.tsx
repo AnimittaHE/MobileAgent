@@ -58,6 +58,14 @@ interface ChatComposerProps {
   isUserScrolledUp: boolean;
   hasMessages: boolean;
   onScrollToBottom: () => void;
+  claudeModel: string;
+  setClaudeModel: (model: string) => void;
+  codexModel: string;
+  setCodexModel: (model: string) => void;
+  cursorModel: string;
+  setCursorModel: (model: string) => void;
+  geminiModel: string;
+  setGeminiModel: (model: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
   isDragActive: boolean;
   attachedImages: File[];
@@ -150,6 +158,14 @@ export default function ChatComposer({
   isTextareaExpanded,
   sendByCtrlEnter,
   onTranscript,
+  claudeModel,
+  setClaudeModel,
+  codexModel,
+  setCodexModel,
+  cursorModel,
+  setCursorModel,
+  geminiModel,
+  setGeminiModel,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
   const textareaRect = textareaRef.current?.getBoundingClientRect();
@@ -203,6 +219,14 @@ export default function ChatComposer({
           isUserScrolledUp={isUserScrolledUp}
           hasMessages={hasMessages}
           onScrollToBottom={onScrollToBottom}
+          claudeModel={claudeModel}
+          setClaudeModel={setClaudeModel}
+          codexModel={codexModel}
+          setCodexModel={setCodexModel}
+          cursorModel={cursorModel}
+          setCursorModel={setCursorModel}
+          geminiModel={geminiModel}
+          setGeminiModel={setGeminiModel}
         />}
       </div>
 

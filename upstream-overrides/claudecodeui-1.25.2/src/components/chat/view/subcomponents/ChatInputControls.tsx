@@ -1,9 +1,30 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { IS_CODEX_ONLY_HARDENED } from '../../../../constants/config';
+import { CLAUDE_MODELS, CODEX_MODELS, CURSOR_MODELS, GEMINI_MODELS } from '../../../../../shared/modelConstants';
 import type { PermissionMode, Provider } from '../../types/types';
 import ThinkingModeSelector from './ThinkingModeSelector';
 import TokenUsagePie from './TokenUsagePie';
+
+function getModelConfig(provider: string) {
+  if (provider === 'claude') return CLAUDE_MODELS;
+  if (provider === 'codex') return CODEX_MODELS;
+  if (provider === 'gemini') return GEMINI_MODELS;
+  return CURSOR_MODELS;
+}
+
+function getModelValue(
+  provider: string,
+  claudeModel: string,
+  cursorModel: string,
+  codexModel: string,
+  geminiModel: string,
+) {
+  if (provider === 'claude') return claudeModel;
+  if (provider === 'codex') return codexModel;
+  if (provider === 'gemini') return geminiModel;
+  return cursorModel;
+}
 
 interface ChatInputControlsProps {
   permissionMode: PermissionMode | string;
@@ -19,6 +40,14 @@ interface ChatInputControlsProps {
   isUserScrolledUp: boolean;
   hasMessages: boolean;
   onScrollToBottom: () => void;
+  claudeModel: string;
+  setClaudeModel: (model: string) => void;
+  codexModel: string;
+  setCodexModel: (model: string) => void;
+  cursorModel: string;
+  setCursorModel: (model: string) => void;
+  geminiModel: string;
+  setGeminiModel: (model: string) => void;
 }
 
 export default function ChatInputControls({
@@ -35,11 +64,57 @@ export default function ChatInputControls({
   isUserScrolledUp,
   hasMessages,
   onScrollToBottom,
+  claudeModel,
+  setClaudeModel,
+  codexModel,
+  setCodexModel,
+  cursorModel,
+  setCursorModel,
+  geminiModel,
+  setGeminiModel,
 }: ChatInputControlsProps) {
   const { t } = useTranslation('chat');
 
+  const modelConfig = getModelConfig(provider);
+  const currentModel = getModelValue(provider, claudeModel, cursorModel, codexModel, geminiModel);
+
+  const handleModelChange = (value: string) => {
+    if (provider === 'claude') {
+      setClaudeModel(value);
+      localStorage.setItem('claude-model', value);
+    } else if (provider === 'codex') {
+      setCodexModel(value);
+      localStorage.setItem('codex-model', value);
+    } else if (provider === 'gemini') {
+      setGeminiModel(value);
+      localStorage.setItem('gemini-model', value);
+    } else {
+      setCursorModel(value);
+      localStorage.setItem('cursor-model', value);
+    }
+  };
+
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+      {!IS_CODEX_ONLY_HARDENED && (
+        <div className="relative">
+          <select
+            value={currentModel}
+            onChange={(e) => handleModelChange(e.target.value)}
+            className="cursor-pointer appearance-none rounded-lg border border-border/60 bg-muted/50 px-2.5 py-1 pr-7 text-sm font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/20 sm:px-3 sm:py-1.5"
+          >
+            {modelConfig.OPTIONS.map(({ value, label }: { value: string; label: string }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={onModeSwitch}

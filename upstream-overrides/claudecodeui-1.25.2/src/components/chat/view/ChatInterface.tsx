@@ -361,6 +361,14 @@ function ChatInterface({
           isUserScrolledUp={isUserScrolledUp}
           hasMessages={chatMessages.length > 0}
           onScrollToBottom={scrollToBottomAndReset}
+          claudeModel={claudeModel}
+          setClaudeModel={setClaudeModel}
+          codexModel={codexModel}
+          setCodexModel={setCodexModel}
+          cursorModel={cursorModel}
+          setCursorModel={setCursorModel}
+          geminiModel={geminiModel}
+          setGeminiModel={setGeminiModel}
           onSubmit={handleSubmit}
           isDragActive={isDragActive}
           attachedImages={attachedImages}
