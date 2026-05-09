@@ -28,6 +28,28 @@ function containsNonAscii(value) {
   return typeof value === 'string' && NON_ASCII_PATH_PATTERN.test(value);
 }
 
+function shouldRetryCodexWithoutResume(error, sessionId, hasRetriedWithoutResume) {
+  if (!sessionId || hasRetriedWithoutResume) {
+    return false;
+  }
+
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('state db missing rollout path') ||
+    (message.includes('thread') && message.includes('not found')) ||
+    (message.includes('session') && message.includes('not found'));
+}
+
+function buildCodexUserFacingError(error) {
+  const message = error?.message || String(error);
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('/v1/responses') || lowerMessage.includes('api.path="responses"')) {
+    return `${message}\n\nDeepSeek's OpenAI-compatible endpoint is Chat Completions-based, while this Codex CLI build requires the OpenAI Responses API. Use OpenAI/ChatGPT auth for Codex, run Codex with a supported local OSS provider, or put a Responses-compatible proxy in front of DeepSeek.`;
+  }
+
+  return message;
+}
+
 async function ensureAsciiWorkingDirectory(projectPath) {
   if (process.platform !== 'win32' || !containsNonAscii(projectPath)) {
     return projectPath;
@@ -236,7 +258,8 @@ export async function queryCodex(command, options = {}, ws) {
     cwd,
     projectPath,
     model,
-    permissionMode = 'default'
+    permissionMode = 'default',
+    _retriedWithoutResume = false
   } = options;
 
   const requestedWorkingDirectory = cwd || projectPath || process.cwd();
@@ -342,11 +365,23 @@ export async function queryCodex(command, options = {}, ws) {
       error?.name === 'AbortError' ||
       String(error?.message || '').toLowerCase().includes('aborted');
 
+    if (!wasAborted && shouldRetryCodexWithoutResume(error, sessionId, _retriedWithoutResume)) {
+      console.warn('[Codex] Resume failed; starting a new thread instead:', error.message);
+      if (currentSessionId) {
+        activeCodexSessions.delete(currentSessionId);
+      }
+      return queryCodex(command, {
+        ...options,
+        sessionId: null,
+        _retriedWithoutResume: true
+      }, ws);
+    }
+
     if (!wasAborted) {
       console.error('[Codex] Error:', error);
       sendMessage(ws, {
         type: 'codex-error',
-        error: error.message,
+        error: buildCodexUserFacingError(error),
         sessionId: currentSessionId
       });
     }

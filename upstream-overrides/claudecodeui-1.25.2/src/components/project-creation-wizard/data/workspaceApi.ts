@@ -22,6 +22,13 @@ type CloneProgressHandlers = {
   onProgress: (message: string) => void;
 };
 
+type SelectFolderResponse = {
+  path?: string;
+  cancelled?: boolean;
+  error?: string;
+  details?: string;
+};
+
 const parseJson = async <T>(response: Response): Promise<T> => {
   const data = (await response.json()) as T;
   return data;
@@ -62,6 +69,17 @@ export const createFolderInFilesystem = async (folderPath: string) => {
   }
 
   return data.path || folderPath;
+};
+
+export const selectSystemFolder = async (initialPath: string) => {
+  const response = await api.selectFolder(initialPath);
+  const data = await parseJson<SelectFolderResponse>(response);
+
+  if (!response.ok) {
+    throw new Error(data.details || data.error || 'Failed to open system folder picker');
+  }
+
+  return data.cancelled ? null : data.path || null;
 };
 
 export const createWorkspaceRequest = async (payload: CreateWorkspacePayload) => {

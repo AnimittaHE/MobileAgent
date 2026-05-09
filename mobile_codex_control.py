@@ -1113,6 +1113,7 @@ class ControlApp:
             detail_label.pack(fill="x", padx=12, pady=(4, 12))
             self.block_labels.append({"frame": frame, "title": title_label, "state": state_label, "detail": detail_label})
 
+
         approval_frame = tk.Frame(container, bg="white", bd=1, relief="solid")
         approval_frame.pack(fill="x", pady=(0, 12))
         tk.Label(
@@ -1482,6 +1483,7 @@ class ControlApp:
         self._render_text(self.requests_text, "\n".join(request_lines) if request_lines else "最近没有检测到手机访问。")
         self._render_text(self.diagnostics_text, "\n".join(status["diagnostics"]) if status["diagnostics"] else "最近没有诊断告警。")
         self._render_pending_approval_list(status["pending_device_approvals"])
+
 
     def run(self) -> None:
         self.root.mainloop()

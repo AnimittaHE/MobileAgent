@@ -19,8 +19,12 @@ function sanitizeGitError(message, token) {
   return message.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '***');
 }
 
-// Configure allowed workspace root (defaults to user's home directory)
+// Configure default workspace root (defaults to user's home directory).
+// By default this build allows projects on any local drive, while still blocking
+// system-critical directories. Set MOBILE_CODEX_ALLOW_ANY_LOCAL_WORKSPACE=false
+// to restore the upstream "must be inside WORKSPACES_ROOT" behavior.
 export const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || os.homedir();
+export const ALLOW_ANY_LOCAL_WORKSPACE = process.env.MOBILE_CODEX_ALLOW_ANY_LOCAL_WORKSPACE !== 'false';
 
 // System-critical paths that should never be used as workspace directories
 export const FORBIDDEN_PATHS = [
@@ -50,42 +54,82 @@ export const FORBIDDEN_PATHS = [
   'C:\\$Recycle.Bin'
 ];
 
+function normalizeForComparison(candidatePath) {
+  const normalized = path.normalize(candidatePath);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+function pathEqualsOrInside(candidatePath, parentPath) {
+  const candidate = normalizeForComparison(candidatePath);
+  const parent = normalizeForComparison(parentPath);
+  const parentWithSeparator = parent.endsWith(path.sep) ? parent : `${parent}${path.sep}`;
+
+  return candidate === parent || candidate.startsWith(parentWithSeparator);
+}
+
+function isRootPath(candidatePath) {
+  const parsed = path.parse(path.normalize(candidatePath));
+  return parsed.root && normalizeForComparison(candidatePath) === normalizeForComparison(parsed.root);
+}
+
+function getForbiddenPathMatch(candidatePath) {
+  const normalizedPath = path.normalize(candidatePath);
+
+  for (const forbidden of FORBIDDEN_PATHS) {
+    if (forbidden === '/') {
+      if (normalizedPath === '/') {
+        return forbidden;
+      }
+      continue;
+    }
+
+    if (!pathEqualsOrInside(normalizedPath, forbidden)) {
+      continue;
+    }
+
+    // Exception: /var/tmp and similar user-accessible paths might be allowed
+    // but /var itself and most /var subdirectories should be blocked.
+    if (
+      forbidden === '/var' &&
+      (normalizedPath.startsWith('/var/tmp') || normalizedPath.startsWith('/var/folders'))
+    ) {
+      continue;
+    }
+
+    return forbidden;
+  }
+
+  return null;
+}
+
 /**
  * Validates that a path is safe for workspace operations
  * @param {string} requestedPath - The path to validate
+ * @param {{allowDriveRoot?: boolean}} options - Validation options
  * @returns {Promise<{valid: boolean, resolvedPath?: string, error?: string}>}
  */
-export async function validateWorkspacePath(requestedPath) {
+export async function validateWorkspacePath(requestedPath, options = {}) {
   try {
+    const { allowDriveRoot = false } = options;
+
     // Resolve to absolute path
     let absolutePath = path.resolve(requestedPath);
 
     // Check if path is a forbidden system directory
     const normalizedPath = path.normalize(absolutePath);
-    if (FORBIDDEN_PATHS.includes(normalizedPath) || normalizedPath === '/') {
+    const forbiddenPath = getForbiddenPathMatch(normalizedPath);
+    if (forbiddenPath) {
       return {
         valid: false,
-        error: 'Cannot use system-critical directories as workspace locations'
+        error: `Cannot use system-critical directory as a workspace location: ${forbiddenPath}`
       };
     }
 
-    // Additional check for paths starting with forbidden directories
-    for (const forbidden of FORBIDDEN_PATHS) {
-      if (normalizedPath === forbidden ||
-          normalizedPath.startsWith(forbidden + path.sep)) {
-        // Exception: /var/tmp and similar user-accessible paths might be allowed
-        // but /var itself and most /var subdirectories should be blocked
-        if (forbidden === '/var' &&
-            (normalizedPath.startsWith('/var/tmp') ||
-             normalizedPath.startsWith('/var/folders'))) {
-          continue; // Allow these specific cases
-        }
-
-        return {
-          valid: false,
-          error: `Cannot create workspace in system directory: ${forbidden}`
-        };
-      }
+    if (isRootPath(normalizedPath) && !allowDriveRoot) {
+      return {
+        valid: false,
+        error: 'Choose a folder inside the drive rather than the drive root'
+      };
     }
 
     // Try to resolve the real path (following symlinks)
@@ -117,16 +161,18 @@ export async function validateWorkspacePath(requestedPath) {
       }
     }
 
-    // Resolve the workspace root to its real path
-    const resolvedWorkspaceRoot = await fs.realpath(WORKSPACES_ROOT);
+    let resolvedWorkspaceRoot = null;
+    if (!ALLOW_ANY_LOCAL_WORKSPACE) {
+      // Resolve the workspace root to its real path
+      resolvedWorkspaceRoot = await fs.realpath(WORKSPACES_ROOT);
 
-    // Ensure the resolved path is contained within the allowed workspace root
-    if (!realPath.startsWith(resolvedWorkspaceRoot + path.sep) &&
-        realPath !== resolvedWorkspaceRoot) {
-      return {
-        valid: false,
-        error: `Workspace path must be within the allowed workspace root: ${WORKSPACES_ROOT}`
-      };
+      // Ensure the resolved path is contained within the allowed workspace root
+      if (!pathEqualsOrInside(realPath, resolvedWorkspaceRoot)) {
+        return {
+          valid: false,
+          error: `Workspace path must be within the allowed workspace root: ${WORKSPACES_ROOT}`
+        };
+      }
     }
 
     // Additional symlink check for existing paths
@@ -140,8 +186,15 @@ export async function validateWorkspacePath(requestedPath) {
         const resolvedTarget = path.resolve(path.dirname(absolutePath), linkTarget);
         const realTarget = await fs.realpath(resolvedTarget);
 
-        if (!realTarget.startsWith(resolvedWorkspaceRoot + path.sep) &&
-            realTarget !== resolvedWorkspaceRoot) {
+        const forbiddenTarget = getForbiddenPathMatch(realTarget);
+        if (forbiddenTarget) {
+          return {
+            valid: false,
+            error: `Symlink target points to a system directory: ${forbiddenTarget}`
+          };
+        }
+
+        if (!ALLOW_ANY_LOCAL_WORKSPACE && !pathEqualsOrInside(realTarget, resolvedWorkspaceRoot)) {
           return {
             valid: false,
             error: 'Symlink target is outside the allowed workspace root'

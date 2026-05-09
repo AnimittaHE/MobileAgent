@@ -658,7 +658,15 @@ app.post('/api/projects/create', authenticateToken, async (req, res) => {
             return res.status(400).json({ error: 'Project path is required' });
         }
 
-        const project = await addProjectManually(projectPath.trim());
+        const validation = await validateWorkspacePath(projectPath.trim());
+        if (!validation.valid) {
+            return res.status(400).json({
+                error: 'Invalid project path',
+                details: validation.error
+            });
+        }
+
+        const project = await addProjectManually(validation.resolvedPath || projectPath.trim());
         res.json({ success: true, project });
     } catch (error) {
         console.error('Error creating project:', error);
@@ -722,6 +730,142 @@ const expandWorkspacePath = (inputPath) => {
     return inputPath;
 };
 
+const isWindowsDriveRoot = (inputPath) =>
+    process.platform === 'win32' && /^[A-Za-z]:[\\/]?$/.test(inputPath || '');
+
+const getWindowsDriveSuggestions = async () => {
+    if (process.platform !== 'win32') {
+        return [];
+    }
+
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    const driveChecks = letters.map(async (letter) => {
+        const drivePath = `${letter}:\\`;
+        try {
+            await fsPromises.access(drivePath);
+            return {
+                path: drivePath,
+                name: drivePath,
+                type: 'directory'
+            };
+        } catch (error) {
+            return null;
+        }
+    });
+
+    const drives = await Promise.all(driveChecks);
+    return drives.filter(Boolean);
+};
+
+const WINDOWS_FOLDER_PICKER_SCRIPT = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
+    "$dialog.Description = 'Select project folder'",
+    '$dialog.ShowNewFolderButton = $true',
+    '$initialPath = $env:MOBILE_CODEX_INITIAL_DIRECTORY',
+    'if ($initialPath -and (Test-Path -LiteralPath $initialPath -PathType Container)) {',
+    '  $dialog.SelectedPath = (Resolve-Path -LiteralPath $initialPath).Path',
+    '}',
+    '$owner = New-Object System.Windows.Forms.Form',
+    '$owner.TopMost = $true',
+    '$owner.ShowInTaskbar = $false',
+    '$owner.WindowState = [System.Windows.Forms.FormWindowState]::Minimized',
+    '$owner.Show()',
+    '$result = $dialog.ShowDialog($owner)',
+    '$owner.Dispose()',
+    'if ($result -eq [System.Windows.Forms.DialogResult]::OK) {',
+    '  Write-Output $dialog.SelectedPath',
+    '  exit 0',
+    '}',
+    'exit 2'
+].join('\n');
+
+const openSystemFolderPicker = (initialPath) => new Promise((resolve, reject) => {
+    if (process.platform !== 'win32') {
+        reject(new Error('System folder picker is only implemented on Windows'));
+        return;
+    }
+
+    const child = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-Command', WINDOWS_FOLDER_PICKER_SCRIPT],
+        {
+            env: {
+                ...process.env,
+                MOBILE_CODEX_INITIAL_DIRECTORY: initialPath || WORKSPACES_ROOT
+            },
+            windowsHide: false
+        }
+    );
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk) => { stdout += chunk; });
+    child.stderr?.on('data', (chunk) => { stderr += chunk; });
+
+    child.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+    });
+
+    child.on('close', (code) => {
+        if (settled) return;
+        settled = true;
+
+        if (code === 2) {
+            resolve(null);
+            return;
+        }
+
+        if (code !== 0) {
+            reject(new Error(stderr.trim() || `System folder picker exited with code ${code}`));
+            return;
+        }
+
+        const selectedPath = stdout
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .pop();
+        resolve(selectedPath || null);
+    });
+});
+
+app.post('/api/select-folder', authenticateToken, async (req, res) => {
+    if (CODEX_ONLY_HARDENED_MODE) {
+        return blockDisabledFeature(res, 'System folder picker');
+    }
+
+    try {
+        const initialPath = typeof req.body?.initialPath === 'string'
+            ? path.resolve(expandWorkspacePath(req.body.initialPath))
+            : WORKSPACES_ROOT;
+
+        const selectedPath = await openSystemFolderPicker(initialPath);
+        if (!selectedPath) {
+            return res.json({ cancelled: true });
+        }
+
+        const validation = await validateWorkspacePath(selectedPath);
+        if (!validation.valid) {
+            return res.status(403).json({ error: validation.error });
+        }
+
+        res.json({
+            path: validation.resolvedPath || selectedPath
+        });
+    } catch (error) {
+        console.error('Error opening system folder picker:', error);
+        res.status(500).json({ error: error.message || 'Failed to open system folder picker' });
+    }
+});
+
 // Browse filesystem endpoint for project suggestions - uses existing getFileTree
 app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
     if (CODEX_ONLY_HARDENED_MODE) {
@@ -741,7 +885,7 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
         targetPath = path.resolve(targetPath);
 
         // Security check - ensure path is within allowed workspace root
-        const validation = await validateWorkspacePath(targetPath);
+        const validation = await validateWorkspacePath(targetPath, { allowDriveRoot: true });
         if (!validation.valid) {
             return res.status(403).json({ error: validation.error });
         }
@@ -787,11 +931,15 @@ app.get('/api/browse-filesystem', authenticateToken, async (req, res) => {
             // Use default root as-is if realpath fails
         }
         if (resolvedPath === resolvedWorkspaceRoot) {
+            const driveSuggestions = await getWindowsDriveSuggestions();
             const commonDirs = ['Desktop', 'Documents', 'Projects', 'Development', 'Dev', 'Code', 'workspace'];
             const existingCommon = directories.filter(dir => commonDirs.includes(dir.name));
             const otherDirs = directories.filter(dir => !commonDirs.includes(dir.name));
 
-            suggestions.push(...existingCommon, ...otherDirs);
+            suggestions.push(...driveSuggestions, ...existingCommon, ...otherDirs);
+        } else if (isWindowsDriveRoot(resolvedPath)) {
+            const driveSuggestions = await getWindowsDriveSuggestions();
+            suggestions.push(...driveSuggestions, ...directories);
         } else {
             suggestions.push(...directories);
         }

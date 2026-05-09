@@ -30,8 +30,8 @@ Add-Content -Path $stderrLog -Value ("`n==== START {0} ====`n" -f (Get-Date -For
 $env:NODE_ENV = 'production'
 $env:HOST = '127.0.0.1'
 $env:PORT = '3001'
-$env:CODEX_ONLY_HARDENED_MODE = 'true'
-$env:VITE_CODEX_ONLY_HARDENED_MODE = 'true'
+$env:CODEX_ONLY_HARDENED_MODE = 'false'
+$env:VITE_CODEX_ONLY_HARDENED_MODE = 'false'
 
 Set-Location $repo
 & $node 'server/index.js' 1>> $stdoutLog 2>> $stderrLog

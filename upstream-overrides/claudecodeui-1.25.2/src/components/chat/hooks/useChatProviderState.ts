@@ -9,6 +9,19 @@ interface UseChatProviderStateArgs {
   selectedSession: ProjectSession | null;
 }
 
+const getStoredCodexModel = () => {
+  const storedModel = localStorage.getItem('codex-model');
+  const supportedModel = storedModel && CODEX_MODELS.OPTIONS.some((option) => option.value === storedModel)
+    ? storedModel
+    : CODEX_MODELS.DEFAULT;
+
+  if (storedModel && storedModel !== supportedModel) {
+    localStorage.setItem('codex-model', supportedModel);
+  }
+
+  return supportedModel;
+};
+
 export function useChatProviderState({ selectedSession }: UseChatProviderStateArgs) {
   const hardenedDefaultPermissionMode: PermissionMode = IS_CODEX_ONLY_HARDENED ? 'acceptEdits' : 'default';
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(hardenedDefaultPermissionMode);
@@ -26,7 +39,7 @@ export function useChatProviderState({ selectedSession }: UseChatProviderStateAr
     return localStorage.getItem('claude-model') || CLAUDE_MODELS.DEFAULT;
   });
   const [codexModel, setCodexModel] = useState<string>(() => {
-    return localStorage.getItem('codex-model') || CODEX_MODELS.DEFAULT;
+    return getStoredCodexModel();
   });
   const [geminiModel, setGeminiModel] = useState<string>(() => {
     return localStorage.getItem('gemini-model') || GEMINI_MODELS.DEFAULT;

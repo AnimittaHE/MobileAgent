@@ -214,6 +214,12 @@ export const api = {
       body: JSON.stringify({ path: folderPath }),
     }),
 
+  selectFolder: (initialPath = '') =>
+    authenticatedFetch('/api/select-folder', {
+      method: 'POST',
+      body: JSON.stringify({ initialPath: initialPath || null }),
+    }),
+
   // User endpoints
   user: {
     gitConfig: () => authenticatedFetch('/api/user/git-config'),
