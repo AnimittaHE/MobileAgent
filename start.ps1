@@ -42,10 +42,19 @@ if (-not $pythonCmd) {
 Start-Process $pythonCmd.Path -ArgumentList (Join-Path $workspace 'mobile_codex_control.py')
 
 Write-Host ""
+Write-Host "正在验证服务状态..." -ForegroundColor DarkGray
+try {
+    $null = Invoke-RestMethod http://127.0.0.1:3001/api/auth/status -TimeoutSec 5
+    Write-Host "  Node 服务: OK" -ForegroundColor Green
+} catch {
+    Write-Host "  Node 服务: 未就绪" -ForegroundColor Yellow
+}
+
+Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  本地地址 : http://127.0.0.1:3001" -ForegroundColor White
 Write-Host "  远程地址 : 查看控制工具窗口" -ForegroundColor White
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "按回车关闭本窗口（服务继续后台运行）" -ForegroundColor DarkGray
+Write-Host "服务已在后台运行，按回车关闭本窗口" -ForegroundColor DarkGray
 Read-Host

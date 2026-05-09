@@ -29,9 +29,17 @@ echo [3/3] 启动桌面控制工具...
 start python mobile_codex_control.py
 
 echo.
+echo 正在验证服务状态...
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "try {  = Invoke-RestMethod http://127.0.0.1:3001/api/auth/status -TimeoutSec 5; ^
+   Write-Host '  Node 服务: OK' -ForegroundColor Green } catch { Write-Host '  Node 服务: 未就绪' -ForegroundColor Yellow }"
+echo.
 echo ========================================
 echo   本地地址: http://127.0.0.1:3001
 echo   远程地址: 查看控制工具窗口
+echo.
+echo   服务已在后台运行。
 echo ========================================
 echo.
-pause
+echo 按任意键关闭本窗口 ^(服务继续运行^)...
+pause >nul
